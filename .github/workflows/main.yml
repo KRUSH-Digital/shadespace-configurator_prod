@@ -29,8 +29,8 @@ jobs:
           # Execute everything remotely
           ssh -o StrictHostKeyChecking=no root@sail.shadespace.com << 'EOF'
             echo "Starting deployment..."
-            source /root/.bashrc
-            
+            export PATH=$PATH:/root/.nvm/versions/node/v22.20.0/bin/
+
             cd /var/www/sail.shadespace.com/html/shadespace-configurator_prod
 
             # Save current commit for rollback
