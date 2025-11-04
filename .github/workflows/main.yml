@@ -119,15 +119,7 @@ jobs:
             fi
 
             # -----------------------------
-            # STEP 8: Check logs
-            # -----------------------------
-            if [ "$FAILED" = false ]; then
-              echo "Checking logs..."
-              pm2 logs 1 --lines 20
-            fi
-
-            # -----------------------------
-            # STEP 9: Handle success or rollback
+            # STEP 8: Handle success or rollback
             # -----------------------------
             if [ "$FAILED" = true ]; then
               echo "One or more steps failed. Rolling back to previous commit..."
