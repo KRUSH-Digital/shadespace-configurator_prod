@@ -1,0 +1,156 @@
+name: Deploy to Production
+
+on:
+  push:
+    branches:
+      - main  # Trigger when main branch is updated
+
+jobs:
+  deploy:
+    name: Deploy to Remote Server
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repo
+        uses: actions/checkout@v4
+
+      - name: Set up SSH
+        uses: webfactory/ssh-agent@v0.8.0
+        with:
+          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+
+      - name: Verify SSH Connection
+        run: |
+          ssh -o StrictHostKeyChecking=no root@sail.shadespace.com "echo SSH connection successful"
+
+      - name: Deploy and Rollback in Same Session
+        id: deploy
+        run: |
+          # Execute everything remotely
+          ssh -o StrictHostKeyChecking=no root@sail.shadespace.com << 'EOF'
+            echo "Starting deployment..."
+
+            cd /var/www/sail.shadespace.com/html/shadespace-configurator_prod
+
+            # Save current commit for rollback
+            PREVIOUS_COMMIT=$(git rev-parse HEAD)
+            echo "Previous commit hash: $PREVIOUS_COMMIT"
+
+            FAILED=false
+
+            # -----------------------------
+            # STEP 1: Pull latest changes
+            # -----------------------------
+            if [ "$FAILED" = false ]; then
+              echo "Pulling latest code..."
+              if ! git pull origin main; then
+                echo "Git pull failed!"
+                FAILED=true
+              fi
+            fi
+
+            # -----------------------------
+            # STEP 2: Navigate to extension directory
+            # -----------------------------
+            if [ "$FAILED" = false ]; then
+              echo "Navigating to shade_space..."
+              if ! cd shade_space; then
+                echo "Could not navigate to shade_space directory!"
+                FAILED=true
+              fi
+            fi
+
+            # -----------------------------
+            # STEP 3: Install dependencies
+            # -----------------------------
+            if [ "$FAILED" = false ]; then
+              if [ -f package-lock.json ]; then
+                echo "Installing dependencies..."
+                if ! npm ci && ! npm install; then
+                  echo "Dependency installation failed!"
+                  FAILED=true
+                fi
+              fi
+            fi
+
+            # -----------------------------
+            # STEP 4: Build extension
+            # -----------------------------
+            if [ "$FAILED" = false ]; then
+              echo "Building extension..."
+              if ! npm run build; then
+                echo "Extension build failed!"
+                FAILED=true
+              fi
+            fi
+
+            # -----------------------------
+            # STEP 5: Return to root directory
+            # -----------------------------
+            if [ "$FAILED" = false ]; then
+              if ! cd ..; then
+                echo "Failed to return to root directory!"
+                FAILED=true
+              fi
+            fi
+
+            # -----------------------------
+            # STEP 6: Build main Shopify app
+            # -----------------------------
+            if [ "$FAILED" = false ]; then
+              echo "Building main Shopify app..."
+              if ! npm run build; then
+                echo "Main app build failed!"
+                FAILED=true
+              fi
+            fi
+
+            # -----------------------------
+            # STEP 7: Restart PM2 process
+            # -----------------------------
+            if [ "$FAILED" = false ]; then
+              echo "Restarting PM2..."
+              pm2 list
+              if ! pm2 restart 1; then
+                echo "PM2 restart failed!"
+                FAILED=true
+              fi
+            fi
+
+            # -----------------------------
+            # STEP 8: Check logs
+            # -----------------------------
+            if [ "$FAILED" = false ]; then
+              echo "Checking logs..."
+              pm2 logs 1 --lines 20
+            fi
+
+            # -----------------------------
+            # STEP 9: Handle success or rollback
+            # -----------------------------
+            if [ "$FAILED" = true ]; then
+              echo "One or more steps failed. Rolling back to previous commit..."
+              git reset --hard "$PREVIOUS_COMMIT"
+              npm run build
+              pm2 restart 1
+              echo "Rollback completed. Previous version restored."
+
+              # Create marker file for GitHub Actions
+              exit 100  # <---- exit non-zero to mark workflow as failed
+            else
+              echo "Deployment completed successfully!"
+            fi
+
+            echo "Deployment process finished."
+          EOF
+
+          # Capture SSH exit code (will be 100 on rollback)
+          EXIT_CODE=$?
+
+          # If rollback occurred, mark workflow as failed
+          if [ $EXIT_CODE -ne 0 ]; then
+            echo "Deployment failed, rollback performed."
+            exit 1
+          else
+            echo "Deployment succeeded without rollback."
+          fi
