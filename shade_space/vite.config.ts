@@ -38,6 +38,7 @@ export default defineConfig({
   plugins: [react()],
   build: {
     outDir: "../public/shadespace/",
+    watch: {},
     emptyOutDir: true,
     sourcemap: false,
     minify: "terser",
