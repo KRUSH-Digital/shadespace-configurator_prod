@@ -13,7 +13,7 @@ export const action = async({request})=>{
 
         if(!email) return new Response(JSON.stringify({success: false, error:"Please provide required field."}),{status: 400})
         
-     const searchResponse = await admin.graphql(
+        const searchResponse = await admin.graphql(
             `query($query: String!) {
                 customers(first: 1, query: $query) {
                     edges {
@@ -41,9 +41,47 @@ export const action = async({request})=>{
         if (!existingCustomer) {
             console.log('Customer does not exist - creating new customer');
             
+            // First, create the customer
             const createResponse = await admin.graphql(
                 `mutation customerCreate($input: CustomerInput!) {
                     customerCreate(input: $input) {
+                        customer {
+                            id
+                            email
+                        }
+                        userErrors {
+                            field
+                            message
+                        }
+                    }
+                }`,
+                {
+                    variables: {
+                        input: {
+                            email: email
+                        }
+                    }
+                }
+            );
+
+            const createData = await createResponse.json();
+            
+            if (createData.data?.customerCreate?.userErrors?.length > 0) {
+                return new Response(
+                    JSON.stringify({ 
+                        success: false, 
+                        error: createData.data.customerCreate.userErrors 
+                    }),
+                    { status: 400 }
+                );
+            }
+
+            const newCustomerId = createData.data?.customerCreate?.customer?.id;
+
+            // Then, update the marketing consent
+            const consentResponse = await admin.graphql(
+                `mutation customerEmailMarketingConsentUpdate($input: CustomerEmailMarketingConsentUpdateInput!) {
+                    customerEmailMarketingConsentUpdate(input: $input) {
                         customer {
                             id
                             email
@@ -61,7 +99,7 @@ export const action = async({request})=>{
                 {
                     variables: {
                         input: {
-                            email: email,
+                            customerId: newCustomerId,
                             emailMarketingConsent: {
                                 marketingState: "SUBSCRIBED",
                                 marketingOptInLevel: "SINGLE_OPT_IN"
@@ -71,13 +109,13 @@ export const action = async({request})=>{
                 }
             );
 
-            const createData = await createResponse.json();
-            
-            if (createData.data?.customerCreate?.userErrors?.length > 0) {
+            const consentData = await consentResponse.json();
+
+            if (consentData.data?.customerEmailMarketingConsentUpdate?.userErrors?.length > 0) {
                 return new Response(
                     JSON.stringify({ 
                         success: false, 
-                        error: createData.data.customerCreate.userErrors 
+                        error: consentData.data.customerEmailMarketingConsentUpdate.userErrors 
                     }),
                     { status: 400 }
                 );
