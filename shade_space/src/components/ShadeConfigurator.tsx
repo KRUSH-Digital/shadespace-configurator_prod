@@ -95,6 +95,9 @@ export function ShadeConfigurator() {
   // State to track if user wants to navigate to heights section specifically
   const [navigateToHeights, setNavigateToHeights] = useState(false);
 
+  // State to track if user wants to navigate to diagonals section specifically
+  const [navigateToDiagonals, setNavigateToDiagonals] = useState(false);
+
   // Mobile pricing bar state
   const [isBarLocked, setIsBarLocked] = useState(false);
   const [isNewQuote, setIsNewQuote] = useState(false);
@@ -128,6 +131,21 @@ export function ShadeConfigurator() {
       window.removeEventListener('resize', checkIsMobile);
     };
   }, []);
+
+  // Default fabric selection for desktop only (monotec370), mobile has no preselection
+  useEffect(() => {
+    const hasNoFabricSelected = !config.fabricType || config.fabricType === '';
+    const isInitialLoad = config.step === 0 && !quoteReference;
+
+    // Only preselect on initial load, when no quote is being loaded, and no fabric is selected
+    if (hasNoFabricSelected && isInitialLoad && !isLoadingQuote) {
+      if (!isMobile) {
+        // Desktop: preselect Monotec 370
+        updateConfig({ fabricType: 'monotec370' });
+      }
+      // Mobile: explicitly ensure no fabric is preselected (already empty, but being explicit)
+    }
+  }, [isMobile, quoteReference, isLoadingQuote]);
 
   // Load saved quote from URL if present
   useEffect(() => {
@@ -600,21 +618,6 @@ export function ShadeConfigurator() {
 
         showToast(data.message, "success");
         setShowEmailInput(false);
-
-        // customer subscription
-
-        const subscription_response = await fetch('/apps/shade_space/api/v1/customers/subscribe', { method: "POST", body: JSON.stringify({ email }) })
-
-        const subscription_data = await subscription_response.json()
-
-        const { success, message, error } = subscription_data
-
-        if (success && message && !error) {
-          showToast(message, 'success')
-        } else if (!success && !message && error) {
-          showToast(error, 'error')
-        }
-
         setEmail('');
       } else {
         const emailDomain = email.split('@')[1] || 'unknown';
@@ -896,6 +899,7 @@ export function ShadeConfigurator() {
         const allowedCartProperties = [
           'fabric_material',
           'fabric_color',
+          'fabric_certification_type',
           'edge_type',
           'wire_thickness',
           'corners',
@@ -922,9 +926,9 @@ export function ShadeConfigurator() {
           metafieldProperties[`Diagonal ${key}`] = value;
         });
 
-        // Object.entries(cartAnchorMeasurements).forEach(([key, value]) => {
-        //   metafieldProperties[`Anchor Height ${key}`] = value;
-        // });
+        Object.entries(cartAnchorMeasurements).forEach(([key, value]) => {
+          metafieldProperties[`Anchor Height ${key}`] = value;
+        });
 
         Object.entries(cartFixingHeights).forEach(([key, value]) => {
           metafieldProperties[key] = value;
@@ -1284,7 +1288,7 @@ export function ShadeConfigurator() {
     }, 350);
   };
 
-  const prevStep = (options?: { navigateToHeights?: boolean }) => {
+  const prevStep = (options?: { navigateToHeights?: boolean; navigateToDiagonals?: boolean }) => {
     const prevStepIndex = getActualPrevStep(openStep);
 
     // Auto-center shape when moving to previous step
@@ -1293,6 +1297,11 @@ export function ShadeConfigurator() {
     // Set the heights navigation flag if specified
     if (options?.navigateToHeights) {
       setNavigateToHeights(true);
+    }
+
+    // Set the diagonals navigation flag if specified
+    if (options?.navigateToDiagonals) {
+      setNavigateToDiagonals(true);
     }
 
     setConfig(prev => ({ ...prev, step: prevStepIndex }));
@@ -1480,9 +1489,9 @@ export function ShadeConfigurator() {
             ? 'lg:col-span-2'
             : (openStep >= 5 && !shouldSkipStep(5)) // Review step (when step 5 is not skipped)
               ? 'lg:col-span-3'
-              : (openStep === 6 && shouldSkipStep(5)) // Review step (when step 5 is skipped)
-                ? 'lg:col-span-3'
-                : 'lg:col-span-4'
+            : (openStep === 6 && shouldSkipStep(5)) // Review step (when step 5 is skipped)
+              ? 'lg:col-span-3'
+              : 'lg:col-span-4'
             }`}>
             {steps.map((step, index) => {
               const StepComponent = step.component;
@@ -1560,6 +1569,8 @@ export function ShadeConfigurator() {
                     quoteReference={quoteReference}
                     navigateToHeights={index === 4 ? navigateToHeights : undefined}
                     setNavigateToHeights={index === 4 ? setNavigateToHeights : undefined}
+                    navigateToDiagonals={index === 4 ? navigateToDiagonals : undefined}
+                    setNavigateToDiagonals={index === 4 ? setNavigateToDiagonals : undefined}
                   />
                 </AccordionStep>
               );
@@ -1633,6 +1644,8 @@ export function ShadeConfigurator() {
         onSaveQuote={handleSaveQuote}
         isLocked={isBarLocked}
         isNewQuote={isNewQuote}
+        hasInvalidMeasurements={calculations.area === 0 && hasAllEdgeMeasurements && (config.corners < 4 || allDiagonalsEntered)}
+        area={calculations.area}
       />
 
       {/* Save Quote Modal */}
