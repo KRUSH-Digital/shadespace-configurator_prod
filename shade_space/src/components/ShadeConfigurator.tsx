@@ -601,19 +601,19 @@ export function ShadeConfigurator() {
         showToast(data.message, "success");
         setShowEmailInput(false);
 
-         // customer subscription
+        // customer subscription
 
-      const subscription_response = await fetch('/apps/shade_space/api/v1/customers/subscribe',{method:"POST", body: JSON.stringify({email})})
+        const subscription_response = await fetch('/apps/shade_space/api/v1/customers/subscribe', { method: "POST", body: JSON.stringify({ email }) })
 
-      const subscription_data = await subscription_response.json()
+        const subscription_data = await subscription_response.json()
 
-      const {success, message, error} = subscription_data
+        const { success, message, error } = subscription_data
 
-      if(success && message && !error){
-        showToast(message,'success')
-      }else if(!success && !message && error){
-        showToast(error,'error')
-      }
+        if (success && message && !error) {
+          showToast(message, 'success')
+        } else if (!success && !message && error) {
+          showToast(error, 'error')
+        }
 
         setEmail('');
       } else {
@@ -896,7 +896,6 @@ export function ShadeConfigurator() {
         const allowedCartProperties = [
           'fabric_material',
           'fabric_color',
-          'fabric_certification_type',
           'edge_type',
           'wire_thickness',
           'corners',
@@ -923,9 +922,9 @@ export function ShadeConfigurator() {
           metafieldProperties[`Diagonal ${key}`] = value;
         });
 
-        Object.entries(cartAnchorMeasurements).forEach(([key, value]) => {
-          metafieldProperties[`Anchor Height ${key}`] = value;
-        });
+        // Object.entries(cartAnchorMeasurements).forEach(([key, value]) => {
+        //   metafieldProperties[`Anchor Height ${key}`] = value;
+        // });
 
         Object.entries(cartFixingHeights).forEach(([key, value]) => {
           metafieldProperties[key] = value;
@@ -1481,9 +1480,9 @@ export function ShadeConfigurator() {
             ? 'lg:col-span-2'
             : (openStep >= 5 && !shouldSkipStep(5)) // Review step (when step 5 is not skipped)
               ? 'lg:col-span-3'
-            : (openStep === 6 && shouldSkipStep(5)) // Review step (when step 5 is skipped)
-              ? 'lg:col-span-3'
-              : 'lg:col-span-4'
+              : (openStep === 6 && shouldSkipStep(5)) // Review step (when step 5 is skipped)
+                ? 'lg:col-span-3'
+                : 'lg:col-span-4'
             }`}>
             {steps.map((step, index) => {
               const StepComponent = step.component;
