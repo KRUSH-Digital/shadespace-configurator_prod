@@ -154,12 +154,29 @@ if (saveMethod === 'email' && email) {
     );
 
     const emailData = await emailResponse.json();
+    console.log('emailData: ', emailData);
     
     if (!emailData.success) {
       console.warn('Quote confirmation email failed:', emailData.error);
       // Don't throw error here - quote is saved successfully regardless of email
     } else {
       console.log('Quote confirmation email sent successfully');
+
+      // customer subscription
+
+      const subscription_response = await fetch('/apps/shade_space/api/v1/customers/subscribe',{method:"POST", body: JSON.stringify({email})})
+
+      const subscription_data = await subscription_response.json()
+
+      const {success, message, error} = subscription_data
+
+      if(success && message && !error){
+        showToast(message,'success')
+      }else if(!success && !message && error){
+        showToast(error,'error')
+      }
+      
+
     }
   } catch (emailError) {
     console.error('Error sending quote confirmation email:', emailError);
