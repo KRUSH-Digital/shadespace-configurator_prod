@@ -78,7 +78,7 @@ export const action = async({request})=>{
 
             const newCustomerId = createData.data?.customerCreate?.customer?.id;
 
-            // Then, update the marketing consent
+            // Then, update the marketing consent with timestamp
             const consentResponse = await admin.graphql(
                 `mutation customerEmailMarketingConsentUpdate($input: CustomerEmailMarketingConsentUpdateInput!) {
                     customerEmailMarketingConsentUpdate(input: $input) {
@@ -88,6 +88,7 @@ export const action = async({request})=>{
                             emailMarketingConsent {
                                 marketingState
                                 marketingOptInLevel
+                                consentUpdatedAt
                             }
                         }
                         userErrors {
@@ -102,7 +103,8 @@ export const action = async({request})=>{
                             customerId: newCustomerId,
                             emailMarketingConsent: {
                                 marketingState: "SUBSCRIBED",
-                                marketingOptInLevel: "SINGLE_OPT_IN"
+                                marketingOptInLevel: "SINGLE_OPT_IN",
+                                consentUpdatedAt: new Date().toISOString()
                             }
                         }
                     }
@@ -124,7 +126,8 @@ export const action = async({request})=>{
             return new Response(
                 JSON.stringify({ 
                     success: true, 
-                    message: "Customer created and subscribed successfully."
+                    message: "Customer created and subscribed successfully.",
+                    customer: consentData.data.customerEmailMarketingConsentUpdate.customer
                 }),
                 { status: 201 }
             );
@@ -141,6 +144,7 @@ export const action = async({request})=>{
                             emailMarketingConsent {
                                 marketingState
                                 marketingOptInLevel
+                                consentUpdatedAt
                             }
                         }
                         userErrors {
@@ -155,7 +159,8 @@ export const action = async({request})=>{
                             customerId: existingCustomer.id,
                             emailMarketingConsent: {
                                 marketingState: "SUBSCRIBED",
-                                marketingOptInLevel: "SINGLE_OPT_IN"
+                                marketingOptInLevel: "SINGLE_OPT_IN",
+                                consentUpdatedAt: new Date().toISOString()
                             }
                         }
                     }
@@ -177,7 +182,8 @@ export const action = async({request})=>{
             return new Response(
                 JSON.stringify({ 
                     success: true, 
-                    message: "Subscription updated successfully."
+                    message: "Subscription updated successfully.",
+                    customer: updateData.data.customerEmailMarketingConsentUpdate.customer
                 }),
                 { status: 200 }
             );
