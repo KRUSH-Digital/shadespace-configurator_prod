@@ -283,90 +283,180 @@ interface QuoteDownloadData {
 
 type PdfData = string | ArrayBuffer | Blob | null | undefined;
 
-const trackPdfDownload = async (
-  quoteReference?: string | null,
-  email?: string | null,
-  totalPrice?: number,
-  currency?: string,
-  pdfData?: PdfData,
-  quoteData?: QuoteDownloadData
-): Promise<void> => {
-  try {
-    const quoteParams: ReturnType<typeof getQuoteFromUrl> | null = getQuoteFromUrl();
-    
-    await fetch('/apps/shade_space/api/v1/public/pdf-download-track', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        quoteReference: quoteReference || quoteParams?.id || null,
-        quoteId: quoteParams?.id || null,
-        customerEmail: email,
-        totalPrice: totalPrice,
-        currency: currency,
-        pdfData: pdfData, // Send the actual PDF data
-        quoteData: quoteData || {
-          config: config,
-          calculations: calculations
-        }
-      }),
-    });
-  } catch (error) {
-    console.error('Failed to track PDF download:', error);
-  }
-};
-
-// Update handleGeneratePDF to capture PDF data
-const handleGeneratePDF = async (svgElement?: SVGElement, isEmailSummary?: boolean) => {
+// Corrected PDF generation function
+const handleGeneratePDF = async (svgElement?: SVGElement, isEmailSummary?: boolean): Promise<PdfData> => {
   setIsGeneratingPDF(true);
   try {
-    const pdf = await generatePDF(config, calculations, svgElement, isEmailSummary);
-
-    // Track PDF download event (only for direct downloads, not email summaries)
-    if (!isEmailSummary && pdf) {
-      const quoteParams = getQuoteFromUrl();
-      
-      // Track PDF download event for admin dashboard
-      eventTrackers.pdfDownload(
-        quoteReference || (quoteParams?.id || null),
-        email || null,
-        calculations.totalPrice,
-        config.currency
-      );
-      
-      // Track in MongoDB with PDF data
-      await trackPdfDownload(
-        quoteReference || (quoteParams?.id || null),
-        email || null,
-        calculations.totalPrice,
-        config.currency,
-        pdf, // Pass the PDF data
-        {
-          config: config,
-          calculations: calculations,
-          selectedFabric: selectedFabric,
-          selectedColor: selectedColor
-        }
-      );
+    // Generate PDF using your utility function
+    const pdf = await generatePDF(config, calculations, svgElement, isEmailSummary) as PdfData;
+    
+    // Only track for direct downloads (not email summaries)
+    if (!isEmailSummary) {
+      await trackPdfDownloadAfterGeneration(pdf);
     }
 
-    return pdf;
+    return pdf || null;
   } catch (error) {
     console.error('Error generating PDF:', error);
     const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
     alert(`Failed to generate PDF: ${errorMessage}\n\nPlease try again. If the problem persists, please contact support.`);
+    return null;
   } finally {
     setIsGeneratingPDF(false);
   }
 };
 
-  // Enhanced PDF generation with SVG element
-  const handleGeneratePDFWithSVG = async (isEmailSummary: boolean) => {
+// Separate function to handle PDF tracking after generation
+const trackPdfDownloadAfterGeneration = async (pdfData: PdfData): Promise<void> => {
+  try {
+    const quoteParams = getQuoteFromUrl();
+    
+    // Convert PDF data to base64 string for tracking
+    let pdfBase64: string | null = null;
+    
+    if (pdfData) {
+      if (typeof pdfData === 'string') {
+        // Already a base64 string or data URL
+        pdfBase64 = pdfData.includes('base64') ? pdfData.split(',')[1] : pdfData;
+      } else if (pdfData instanceof Blob) {
+        // Convert Blob to base64
+        pdfBase64 = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onloadend = () => {
+            const result = reader.result as string;
+            const base64Data = result.includes(',') ? result.split(',')[1] : result;
+            resolve(base64Data);
+          };
+          reader.onerror = () => reject(new Error('Failed to read Blob'));
+          reader.readAsDataURL(pdfData);
+        });
+      } else if (pdfData instanceof ArrayBuffer) {
+        // Convert ArrayBuffer to base64
+        const bytes = new Uint8Array(pdfData);
+        let binary = '';
+        for (let i = 0; i < bytes.byteLength; i++) {
+          binary += String.fromCharCode(bytes[i]);
+        }
+        pdfBase64 = btoa(binary);
+      }
+    }
+
+    // Prepare tracking data
+    const trackingData = {
+      quoteReference: quoteReference || quoteParams?.id || null,
+      quoteId: quoteParams?.id || null,
+      customerEmail: email || null,
+      totalPrice: calculations.totalPrice,
+      currency: config.currency,
+      pdfData: pdfBase64,
+      quoteData: {
+        config: config,
+        calculations: calculations,
+        selectedFabric: selectedFabric,
+        selectedColor: selectedColor,
+        fabricType: config.fabricType,
+        fabricColor: config.fabricColor,
+        corners: config.corners,
+        area: calculations.area,
+        perimeter: calculations.perimeter,
+        totalPrice: calculations.totalPrice
+      }
+    };
+
+    console.log('Tracking PDF download:', {
+      quoteReference: trackingData.quoteReference,
+      hasPdfData: !!pdfBase64,
+      pdfDataLength: pdfBase64?.length || 0
+    });
+
+    // Track PDF download event for admin dashboard
+    eventTrackers.pdfDownload(
+      quoteReference || (quoteParams?.id || null),
+      email || null,
+      calculations.totalPrice,
+      config.currency
+    );
+
+    // Send tracking data to your API
+    const response = await fetch('/apps/shade_space/api/v1/public/pdf-download-track', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(trackingData),
+    });
+
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+
+    const result = await response.json();
+    
+    if (result.success) {
+      console.log('PDF download tracked successfully:', result.message);
+    } else {
+      console.error('PDF download tracking failed:', result.error);
+    }
+  } catch (error) {
+    console.error('Failed to track PDF download:', error);
+    // Don't throw error here - we don't want to break the PDF download if tracking fails
+  }
+};
+
+// Enhanced PDF generation with SVG element
+const handleGeneratePDFWithSVG = async (isEmailSummary: boolean = false): Promise<string | null> => {
+  try {
     const svgElement = canvasRef.current?.getSVGElement?.();
     const pdf = await handleGeneratePDF(svgElement, isEmailSummary);
-    return pdf;
-  };
+
+    if (!pdf) {
+      console.error('PDF generation returned null or undefined');
+      return null;
+    }
+
+    // Handle different PDF return types and convert to data URL string
+    if (typeof pdf === 'string') {
+      // If it's already a data URL, return it
+      if (pdf.startsWith('data:')) {
+        return pdf;
+      }
+      // If it's base64, convert to data URL
+      return `data:application/pdf;base64,${pdf}`;
+    }
+
+    if (pdf instanceof Blob) {
+      return await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          if (typeof reader.result === 'string') {
+            resolve(reader.result);
+          } else {
+            reject(new Error('Failed to read Blob as data URL'));
+          }
+        };
+        reader.onerror = () => reject(new Error('Failed to read Blob'));
+        reader.readAsDataURL(pdf);
+      });
+    }
+
+    if (pdf instanceof ArrayBuffer) {
+      const bytes = new Uint8Array(pdf);
+      let binary = '';
+      for (let i = 0; i < bytes.byteLength; i++) {
+        binary += String.fromCharCode(bytes[i]);
+      }
+      const base64 = btoa(binary);
+      return `data:application/pdf;base64,${base64}`;
+    }
+
+    console.error('Unknown PDF data type:', typeof pdf);
+    return null;
+  } catch (error) {
+    console.error('Error in handleGeneratePDFWithSVG:', error);
+    return null;
+  }
+};
+
 
   const convertSvgToPng = async (
     svgElement: SVGSVGElement,
