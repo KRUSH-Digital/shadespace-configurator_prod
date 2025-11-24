@@ -1,6 +1,9 @@
 import { sendMicrosoftEmail } from "../config/microsoft-mailer";
+import { QuoteActivity } from "../model/QuoteActivity";
 
 export const action = async ({ request }) => {
+  let quoteActivity = null;
+  
   try {
     if (request.method !== "POST") {
       return new Response(
@@ -25,7 +28,11 @@ export const action = async ({ request }) => {
       quoteReference,
       quoteUrl,
       expiresAt,
-      quoteName
+      quoteName,
+      quoteId,
+      customerIp,
+      userAgent,
+      quoteData // Add quote configuration data
     } = data;
 
     // Validate all required fields
@@ -189,6 +196,32 @@ export const action = async ({ request }) => {
       </html>
     `;
 
+    // Create activity record with email content and quote data
+    quoteActivity = new QuoteActivity({
+      quote_reference: quoteReference,
+      quote_id: quoteId || quoteReference,
+      activity_type: 'quote_saved',
+      customer_email: receiver,
+      customer_ip: customerIp || request.headers.get('cf-connecting-ip') || request.headers.get('x-forwarded-for') || 'unknown',
+      user_agent: userAgent || request.headers.get('user-agent') || 'unknown',
+      email_recipients: [receiver],
+      email_subject: `Your ShadeSpace Quote - ${quoteReference}`,
+      email_content: {
+        subject: `Your ShadeSpace Quote - ${quoteReference}`,
+        html_content: emailHtml,
+        text_content: `Your quote ${quoteReference} has been saved. Access it here: ${quoteUrl}`
+      },
+      quote_data: quoteData || {},
+      activity_data: {
+        quote_name: quoteName,
+        quote_url: quoteUrl,
+        expires_at: expiresAt
+      }
+    });
+
+    await quoteActivity.save();
+    console.log('Quote save activity recorded in database with email content');
+
     // Prepare email data with safe defaults
     const emailData = {
       to: receiver,
@@ -205,6 +238,11 @@ export const action = async ({ request }) => {
     // Send the email
     await sendMicrosoftEmail(emailData);
 
+    // Update activity record with success
+    quoteActivity.email_sent_successfully = true;
+    quoteActivity.updated_at = new Date();
+    await quoteActivity.save();
+
     console.log('Quote save email sent successfully to:', receiver);
 
     return new Response(
@@ -220,6 +258,14 @@ export const action = async ({ request }) => {
       stack: error.stack,
       name: error.name
     });
+    
+    // Update activity record with error
+    if (quoteActivity) {
+      quoteActivity.email_sent_successfully = false;
+      quoteActivity.email_error = error.message;
+      quoteActivity.updated_at = new Date();
+      await quoteActivity.save();
+    }
     
     return new Response(
       JSON.stringify({ 

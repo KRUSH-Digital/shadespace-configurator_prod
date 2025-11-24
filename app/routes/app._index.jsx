@@ -1,328 +1,511 @@
-import { useEffect } from "react";
-import { useFetcher } from "@remix-run/react";
+import React, { useState, useEffect, useCallback } from "react";
 import {
   Page,
-  Layout,
-  Text,
   Card,
-  Button,
-  BlockStack,
-  Box,
-  List,
-  Link,
   InlineStack,
+  BlockStack,
+  Text,
+  Tabs,
+  Select,
+  TextField,
+  Button,
+  DataTable,
+  Modal,
+  Pagination,
+  EmptyState,
+  Toast,
+  Grid,
+  SkeletonBodyText,
+  Box,
+  Badge,
+  Divider,
+  Icon,
 } from "@shopify/polaris";
-import { TitleBar, useAppBridge } from "@shopify/app-bridge-react";
-import { authenticate } from "../shopify.server";
+import { 
+  SaveIcon,
+  EmailIcon,
+  FileIcon,
+  ClockIcon,
+  LocationIcon,
+  PersonIcon,
+  NoteIcon,
+  LinkIcon,
+  CalendarIcon,
+} from "@shopify/polaris-icons";
+import { TitleBar } from "@shopify/app-bridge-react";
 
-export const loader = async ({ request }) => {
-  await authenticate.admin(request);
+const TAB_ITEMS = [
+  { id: "overview", content: "Overview" },
+  { id: "quote_saved", content: "Quote Saved" },
+  { id: "email_summary_sent", content: "Email Summary Sent" },
+  { id: "pdf_downloaded", content: "PDF Downloaded" },
+];
 
-  return null;
-};
+const QUOTE_DOWNLOAD_URL = "/apps/shade_space/api/v1/public/quote/download?ref=";
+const SAMPLE_JSON_FILE_PATH = "/mnt/data/embedapp.quoteactivities.json";
 
-export const action = async ({ request }) => {
-  const { admin } = await authenticate.admin(request);
-  const color = ["Red", "Orange", "Yellow", "Green"][
-    Math.floor(Math.random() * 4)
-  ];
-  const response = await admin.graphql(
-    `#graphql
-      mutation populateProduct($product: ProductCreateInput!) {
-        productCreate(product: $product) {
-          product {
-            id
-            title
-            handle
-            status
-            variants(first: 10) {
-              edges {
-                node {
-                  id
-                  price
-                  barcode
-                  createdAt
-                }
-              }
-            }
-          }
+export default function Analytics() {
+  const [activeTab, setActiveTab] = useState("overview");
+  const [loading, setLoading] = useState(true);
+  const [data, setData] = useState(null);
+  const [filters, setFilters] = useState({
+    activityType: "all",
+    dateFrom: "",
+    dateTo: "",
+  });
+  const [pagination, setPagination] = useState({
+    page: 1,
+    limit: 10,
+    total: 0,
+    pages: 0,
+  });
+
+  const [toast, setToast] = useState(null);
+  const [selectedActivity, setSelectedActivity] = useState(null);
+
+  const fetchAnalytics = useCallback(
+    async (tab = activeTab, page = 1) => {
+      setLoading(true);
+      try {
+        const res = await fetch("/api/v1/analytics", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            type: tab,
+            page,
+            limit: pagination.limit,
+            ...filters,
+          }),
+        });
+
+        const result = await res.json();
+
+        if (result.success) {
+          setData(result.data ?? null);
+          if (result.data?.pagination)
+            setPagination(result.data.pagination);
+        } else {
+          setData(null);
         }
-      }`,
-    {
-      variables: {
-        product: {
-          title: `${color} Snowboard`,
-        },
-      },
-    },
-  );
-  const responseJson = await response.json();
-  const product = responseJson.data.productCreate.product;
-  const variantId = product.variants.edges[0].node.id;
-  const variantResponse = await admin.graphql(
-    `#graphql
-    mutation shopifyRemixTemplateUpdateVariant($productId: ID!, $variants: [ProductVariantsBulkInput!]!) {
-      productVariantsBulkUpdate(productId: $productId, variants: $variants) {
-        productVariants {
-          id
-          price
-          barcode
-          createdAt
-        }
+      } catch (err) {
+        console.error(err);
+        setData(null);
+      } finally {
+        setLoading(false);
       }
-    }`,
-    {
-      variables: {
-        productId: product.id,
-        variants: [{ id: variantId, price: "100.00" }],
-      },
     },
-  );
-  const variantResponseJson = await variantResponse.json();
-
-  return {
-    product: responseJson.data.productCreate.product,
-    variant: variantResponseJson.data.productVariantsBulkUpdate.productVariants,
-  };
-};
-
-export default function Index() {
-  const fetcher = useFetcher();
-  const shopify = useAppBridge();
-  const isLoading =
-    ["loading", "submitting"].includes(fetcher.state) &&
-    fetcher.formMethod === "POST";
-  const productId = fetcher.data?.product?.id.replace(
-    "gid://shopify/Product/",
-    "",
+    [activeTab, filters, pagination.limit]
   );
 
   useEffect(() => {
-    if (productId) {
-      shopify.toast.show("Product created");
+    fetchAnalytics(activeTab, 1);
+  }, [activeTab, filters, fetchAnalytics]);
+
+  const formatDate = (d) =>
+    new Date(d).toLocaleString("en-GB", {
+      day: "2-digit",
+      month: "short",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+
+  const handlePageChange = (newPage) => fetchAnalytics(activeTab, newPage);
+
+  const downloadQuote = (e, ref) => {
+    e.stopPropagation();
+    if (!ref || ref === "unknown") {
+      setToast({ content: "Quote not available" });
+      return;
     }
-  }, [productId, shopify]);
-  const generateProduct = () => fetcher.submit({}, { method: "POST" });
+    window.open(`${QUOTE_DOWNLOAD_URL}${encodeURIComponent(ref)}`, "_blank");
+  };
+
+  const getActivityBadge = (type) => {
+    const badges = {
+      quote_saved: { status: "info", label: "Quote Saved" },
+      email_summary_sent: { status: "success", label: "Email Sent" },
+      pdf_downloaded: { status: "attention", label: "PDF Downloaded" },
+    };
+    const badge = badges[type] || { status: "default", label: type };
+    return <Badge tone={badge.status}>{badge.label}</Badge>;
+  };
+
+  const getActivityIcon = (type) => {
+    const icons = {
+      quote_saved: SaveIcon,
+      email_summary_sent: EmailIcon,
+      pdf_downloaded: FileIcon,
+    };
+    return icons[type] || NoteIcon;
+  };
+
+  const parseActivityData = (data) => {
+    if (!data) return [];
+    
+    const items = [];
+    
+    Object.entries(data).forEach(([key, value]) => {
+      if (value === null || value === undefined) return;
+      
+      const formattedKey = key.split('_').map(word => 
+        word.charAt(0).toUpperCase() + word.slice(1)
+      ).join(' ');
+      
+      let displayValue = value;
+      let icon = NoteIcon;
+      let isLink = false;
+      
+      // Determine icon and format value
+      if (key.includes('email') || key.includes('recipient')) {
+        icon = EmailIcon;
+      } else if (key.includes('url') || key.includes('link')) {
+        icon = LinkIcon;
+        isLink = true;
+      } else if (key.includes('date') || key.includes('time') || key.includes('expires')) {
+        icon = CalendarIcon;
+        try {
+          displayValue = new Date(value).toLocaleString("en-GB", {
+            day: "2-digit",
+            month: "long",
+            year: "numeric",
+            hour: "2-digit",
+            minute: "2-digit"
+          });
+        } catch (e) {}
+      } else if (key.includes('price') || key.includes('currency')) {
+        icon = NoteIcon;
+      } else if (key.includes('file') || key.includes('pdf') || key.includes('format')) {
+        icon = FileIcon;
+      }
+      
+      if (typeof value === 'object' && value !== null) {
+        displayValue = JSON.stringify(value, null, 2);
+      } else if (typeof value === 'boolean') {
+        displayValue = value ? 'Yes' : 'No';
+      } else if (typeof displayValue === 'string' && (displayValue.startsWith('http://') || displayValue.startsWith('https://'))) {
+        isLink = true;
+        icon = LinkIcon;
+      }
+      
+      items.push({ 
+        label: formattedKey, 
+        value: String(displayValue), 
+        icon,
+        isLink
+      });
+    });
+    
+    return items;
+  };
+
+  const buildRows = (activities = []) =>
+    activities.map((a) => [
+      a.quote_reference ?? "-",
+      a.customer_email ?? "-",
+      a.customer_ip ?? "-",
+      formatDate(a.created_at),
+      <InlineStack gap="200">
+        <Button size="slim" onClick={(e) => downloadQuote(e, a.quote_reference)}>
+          Download
+        </Button>
+        <Button size="slim" variant="primary" onClick={() => setSelectedActivity(a)}>
+          View Details
+        </Button>
+      </InlineStack>,
+    ]);
 
   return (
-    <Page>
-      <TitleBar title="Remix app template">
-        <button variant="primary" onClick={generateProduct}>
-          Generate a product
-        </button>
-      </TitleBar>
+    <Page title="Analytics Dashboard">
+      <TitleBar title="Analytics" />
+
+      {toast && <Toast content={toast.content} onDismiss={() => setToast(null)} />}
+
       <BlockStack gap="500">
-        <Layout>
-          <Layout.Section>
-            <Card>
-              <BlockStack gap="500">
-                <BlockStack gap="200">
-                  <Text as="h2" variant="headingMd">
-                    Congrats on creating a new Shopify app 🎉
-                  </Text>
-                  <Text variant="bodyMd" as="p">
-                    This embedded app template uses{" "}
-                    <Link
-                      url="https://shopify.dev/docs/apps/tools/app-bridge"
-                      target="_blank"
-                      removeUnderline
-                    >
-                      App Bridge
-                    </Link>{" "}
-                    interface examples like an{" "}
-                    <Link url="/app/additional" removeUnderline>
-                      additional page in the app nav
-                    </Link>
-                    , as well as an{" "}
-                    <Link
-                      url="https://shopify.dev/docs/api/admin-graphql"
-                      target="_blank"
-                      removeUnderline
-                    >
-                      Admin GraphQL
-                    </Link>{" "}
-                    mutation demo, to provide a starting point for app
-                    development.
-                  </Text>
-                </BlockStack>
-                <BlockStack gap="200">
-                  <Text as="h3" variant="headingMd">
-                    Get started with products
-                  </Text>
-                  <Text as="p" variant="bodyMd">
-                    Generate a product with GraphQL and get the JSON output for
-                    that product. Learn more about the{" "}
-                    <Link
-                      url="https://shopify.dev/docs/api/admin-graphql/latest/mutations/productCreate"
-                      target="_blank"
-                      removeUnderline
-                    >
-                      productCreate
-                    </Link>{" "}
-                    mutation in our API references.
-                  </Text>
-                </BlockStack>
-                <InlineStack gap="300">
-                  <Button loading={isLoading} onClick={generateProduct}>
-                    Generate a product
-                  </Button>
-                  {fetcher.data?.product && (
-                    <Button
-                      url={`shopify:admin/products/${productId}`}
-                      target="_blank"
-                      variant="plain"
-                    >
-                      View product
-                    </Button>
-                  )}
-                </InlineStack>
-                {fetcher.data?.product && (
-                  <>
-                    <Text as="h3" variant="headingMd">
-                      {" "}
-                      productCreate mutation
-                    </Text>
-                    <Box
-                      padding="400"
-                      background="bg-surface-active"
-                      borderWidth="025"
-                      borderRadius="200"
-                      borderColor="border"
-                      overflowX="scroll"
-                    >
-                      <pre style={{ margin: 0 }}>
-                        <code>
-                          {JSON.stringify(fetcher.data.product, null, 2)}
-                        </code>
-                      </pre>
-                    </Box>
-                    <Text as="h3" variant="headingMd">
-                      {" "}
-                      productVariantsBulkUpdate mutation
-                    </Text>
-                    <Box
-                      padding="400"
-                      background="bg-surface-active"
-                      borderWidth="025"
-                      borderRadius="200"
-                      borderColor="border"
-                      overflowX="scroll"
-                    >
-                      <pre style={{ margin: 0 }}>
-                        <code>
-                          {JSON.stringify(fetcher.data.variant, null, 2)}
-                        </code>
-                      </pre>
-                    </Box>
-                  </>
-                )}
-              </BlockStack>
-            </Card>
-          </Layout.Section>
-          <Layout.Section variant="oneThird">
-            <BlockStack gap="500">
+        {/* Tabs + Filters */}
+        <Card>
+          <BlockStack gap="400">
+            <Tabs
+              tabs={TAB_ITEMS}
+              selected={TAB_ITEMS.findIndex((t) => t.id === activeTab)}
+              onSelect={(index) => setActiveTab(TAB_ITEMS[index].id)}
+            />
+
+            <Divider />
+
+            <div style={{ 
+              display: "grid", 
+              gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", 
+              gap: "16px", 
+              alignItems: "end" 
+            }}>
+              <Select
+                label="Activity Type"
+                options={[
+                  { label: "All Activities", value: "all" },
+                  { label: "Quote Saved", value: "quote_saved" },
+                  { label: "Email Summary Sent", value: "email_summary_sent" },
+                  { label: "PDF Downloaded", value: "pdf_downloaded" },
+                ]}
+                value={filters.activityType}
+                onChange={(v) => setFilters((f) => ({ ...f, activityType: v }))}
+              />
+              <TextField
+                type="date"
+                label="From Date"
+                value={filters.dateFrom}
+                onChange={(v) => setFilters((f) => ({ ...f, dateFrom: v }))}
+              />
+              <TextField
+                type="date"
+                label="To Date"
+                value={filters.dateTo}
+                onChange={(v) => setFilters((f) => ({ ...f, dateTo: v }))}
+              />
+              <Button onClick={() => window.open(SAMPLE_JSON_FILE_PATH, "_blank")}>
+                Download Sample
+              </Button>
+            </div>
+          </BlockStack>
+        </Card>
+
+        {/* === OVERVIEW DASHBOARD === */}
+        {activeTab === "overview" && (
+          <>
+            {loading ? (
               <Card>
-                <BlockStack gap="200">
-                  <Text as="h2" variant="headingMd">
-                    App template specs
-                  </Text>
-                  <BlockStack gap="200">
-                    <InlineStack align="space-between">
-                      <Text as="span" variant="bodyMd">
-                        Framework
-                      </Text>
-                      <Link
-                        url="https://remix.run"
-                        target="_blank"
-                        removeUnderline
+                <SkeletonBodyText lines={8} />
+              </Card>
+            ) : !data?.totals ? (
+              <Card>
+                <EmptyState
+                  heading="No data available"
+                  image="https://cdn.shopify.com/s/files/1/0262/4071/2726/files/emptystate-files.png"
+                >
+                  <p>Start tracking analytics to see insights here.</p>
+                </EmptyState>
+              </Card>
+            ) : (
+              <>
+                {/* KPI Metrics Grid */}
+                <div style={{
+                  display: "grid",
+                  gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
+                  gap: "16px"
+                }}>
+                  {[
+                    { label: "Total Activities", value: data.totals.total_activities, icon: "📊" },
+                    { label: "Quotes Saved", value: data.totals.quote_saved, icon: "💾" },
+                    { label: "Emails Sent", value: data.totals.email_summary_sent, icon: "📧" },
+                    { label: "PDF Downloads", value: data.totals.pdf_downloaded, icon: "📄" },
+                    { label: "Unique Quotes", value: data.totals.total_quotes, icon: "📋" },
+                    { label: "Unique Customers", value: data.totals.total_customers, icon: "👥" },
+                  ].map((metric, i) => (
+                    <Card key={i} padding="400">
+                      <div style={{
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "space-between"
+                      }}>
+                        <div>
+                          <Text variant="bodySm" tone="subdued">{metric.label}</Text>
+                          <div style={{ 
+                            fontSize: "32px", 
+                            fontWeight: "600", 
+                            marginTop: "8px",
+                            color: "#202223"
+                          }}>
+                            {metric.value ?? 0}
+                          </div>
+                        </div>
+                        <div style={{
+                          fontSize: "32px",
+                          opacity: 0.3
+                        }}>
+                          {metric.icon}
+                        </div>
+                      </div>
+                    </Card>
+                  ))}
+                </div>
+
+                {/* Recent Activities Card */}
+                <Card>
+                  <BlockStack gap="400">
+                    <Text variant="headingMd" as="h2">Recent Activities</Text>
+                    {data.recentActivities?.length > 0 ? (
+                      <DataTable
+                        columnContentTypes={["text", "text", "text", "text"]}
+                        headings={["Activity Type", "Quote Reference", "Customer Email", "Date & Time"]}
+                        rows={data.recentActivities.map((r) => [
+                          <div key={r.id}>{getActivityBadge(r.activity_type)}</div>,
+                          r.quote_reference ?? "-",
+                          r.customer_email ?? "-",
+                          formatDate(r.created_at),
+                        ])}
+                      />
+                    ) : (
+                      <EmptyState
+                        heading="No recent activities"
+                        image="https://cdn.shopify.com/s/files/1/0262/4071/2726/files/emptystate-files.png"
                       >
-                        Remix
-                      </Link>
-                    </InlineStack>
-                    <InlineStack align="space-between">
-                      <Text as="span" variant="bodyMd">
-                        Database
-                      </Text>
-                      <Link
-                        url="https://www.prisma.io/"
-                        target="_blank"
-                        removeUnderline
-                      >
-                        Prisma
-                      </Link>
-                    </InlineStack>
-                    <InlineStack align="space-between">
-                      <Text as="span" variant="bodyMd">
-                        Interface
-                      </Text>
-                      <span>
-                        <Link
-                          url="https://polaris.shopify.com"
-                          target="_blank"
-                          removeUnderline
-                        >
-                          Polaris
-                        </Link>
-                        {", "}
-                        <Link
-                          url="https://shopify.dev/docs/apps/tools/app-bridge"
-                          target="_blank"
-                          removeUnderline
-                        >
-                          App Bridge
-                        </Link>
-                      </span>
-                    </InlineStack>
-                    <InlineStack align="space-between">
-                      <Text as="span" variant="bodyMd">
-                        API
-                      </Text>
-                      <Link
-                        url="https://shopify.dev/docs/api/admin-graphql"
-                        target="_blank"
-                        removeUnderline
-                      >
-                        GraphQL API
-                      </Link>
-                    </InlineStack>
+                        <p>Activity will appear here once customers interact with quotes.</p>
+                      </EmptyState>
+                    )}
                   </BlockStack>
-                </BlockStack>
-              </Card>
+                </Card>
+              </>
+            )}
+          </>
+        )}
+
+        {/* === DETAILS TABS === */}
+        {activeTab !== "overview" && (
+          <>
+            {loading ? (
               <Card>
-                <BlockStack gap="200">
-                  <Text as="h2" variant="headingMd">
-                    Next steps
-                  </Text>
-                  <List>
-                    <List.Item>
-                      Build an{" "}
-                      <Link
-                        url="https://shopify.dev/docs/apps/getting-started/build-app-example"
-                        target="_blank"
-                        removeUnderline
-                      >
-                        {" "}
-                        example app
-                      </Link>{" "}
-                      to get started
-                    </List.Item>
-                    <List.Item>
-                      Explore Shopify’s API with{" "}
-                      <Link
-                        url="https://shopify.dev/docs/apps/tools/graphiql-admin-api"
-                        target="_blank"
-                        removeUnderline
-                      >
-                        GraphiQL
-                      </Link>
-                    </List.Item>
-                  </List>
+                <SkeletonBodyText lines={10} />
+              </Card>
+            ) : !data?.activities?.length ? (
+              <Card>
+                <EmptyState
+                  heading="No results found"
+                  image="https://cdn.shopify.com/s/files/1/0262/4071/2726/files/emptystate-files.png"
+                >
+                  <p>Try adjusting your filters to see more results.</p>
+                </EmptyState>
+              </Card>
+            ) : (
+              <Card>
+                <BlockStack gap="400">
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "12px" }}>
+                    <Text variant="headingMd" as="h2">
+                      {TAB_ITEMS.find(t => t.id === activeTab)?.content}
+                    </Text>
+                    <Badge tone="info">{pagination.total} results</Badge>
+                  </div>
+
+                  <DataTable
+                    columnContentTypes={["text", "text", "text", "text", "text"]}
+                    headings={["Quote Reference", "Customer Email", "IP Address", "Date & Time", "Actions"]}
+                    rows={buildRows(data.activities)}
+                  />
+
+                  {pagination.pages > 1 && (
+                    <Box paddingBlockStart="400">
+                      <div style={{ display: "flex", justifyContent: "center" }}>
+                        <Pagination
+                          hasPrevious={pagination.page > 1}
+                          onPrevious={() => handlePageChange(pagination.page - 1)}
+                          hasNext={pagination.page < pagination.pages}
+                          onNext={() => handlePageChange(pagination.page + 1)}
+                          label={`Page ${pagination.page} of ${pagination.pages}`}
+                        />
+                      </div>
+                    </Box>
+                  )}
                 </BlockStack>
               </Card>
-            </BlockStack>
-          </Layout.Section>
-        </Layout>
+            )}
+          </>
+        )}
       </BlockStack>
+
+      {/* === ACTIVITY DETAILS MODAL === */}
+      {selectedActivity && (
+        <Modal
+          open
+          onClose={() => setSelectedActivity(null)}
+          title="Activity Details"
+          primaryAction={{ 
+            content: "Close", 
+            onAction: () => setSelectedActivity(null) 
+          }}
+          secondaryActions={[
+            {
+              content: "Download Quote",
+              onAction: () => downloadQuote({ stopPropagation: () => {} }, selectedActivity.quote_reference),
+            },
+          ]}
+        >
+          <Modal.Section>
+            <BlockStack gap="400">
+              {/* Header Info */}
+              <Card>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "start", gap: "16px" }}>
+                  <div style={{ flex: 1 }}>
+                    <Text variant="headingMd" as="h3">{selectedActivity.quote_reference || "No Reference"}</Text>
+                    <div style={{ marginTop: "8px" }}>
+                      <Text variant="bodySm" tone="subdued">{formatDate(selectedActivity.created_at)}</Text>
+                    </div>
+                  </div>
+                  <div>{getActivityBadge(selectedActivity.activity_type)}</div>
+                </div>
+              </Card>
+
+              {/* Customer Information */}
+              <Card>
+                <BlockStack gap="300">
+                  <Text variant="headingSm" as="h4">Customer Information</Text>
+                  
+                  <div style={{ display: "grid", gridTemplateColumns: "140px 1fr", gap: "12px", alignItems: "start" }}>
+                    <Text variant="bodySm" tone="subdued">Email</Text>
+                    <Text variant="bodySm">{selectedActivity.customer_email || "Not provided"}</Text>
+                    
+                    <Text variant="bodySm" tone="subdued">IP Address</Text>
+                    <Text variant="bodySm">{selectedActivity.customer_ip || "Not available"}</Text>
+                  </div>
+                </BlockStack>
+              </Card>
+
+              {/* Activity Data */}
+              {parseActivityData(selectedActivity.activity_data).length > 0 && (
+                <Card>
+                  <BlockStack gap="300">
+                    <Text variant="headingSm" as="h4">Activity Details</Text>
+                    
+                    <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+                      {parseActivityData(selectedActivity.activity_data).map((item, idx) => (
+                        <div 
+                          key={idx} 
+                          style={{ 
+                            display: "grid", 
+                            gridTemplateColumns: "140px 1fr", 
+                            gap: "12px",
+                            alignItems: "start",
+                            paddingBottom: "12px",
+                            borderBottom: idx < parseActivityData(selectedActivity.activity_data).length - 1 ? "1px solid #e3e3e3" : "none"
+                          }}
+                        >
+                          <Text variant="bodySm" tone="subdued">{item.label}</Text>
+                          <div style={{ wordBreak: "break-word" }}>
+                            {item.isLink ? (
+                              <a 
+                                href={item.value} 
+                                target="_blank" 
+                                rel="noopener noreferrer"
+                                style={{ 
+                                  color: "#2563eb",
+                                  textDecoration: "underline",
+                                  fontSize: "13px"
+                                }}
+                              >
+                                {item.value}
+                              </a>
+                            ) : (
+                              <Text variant="bodySm">{item.value}</Text>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </BlockStack>
+                </Card>
+              )}
+            </BlockStack>
+          </Modal.Section>
+        </Modal>
+      )}
     </Page>
   );
 }

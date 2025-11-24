@@ -103,7 +103,7 @@ export const action = async({request})=>{
                             customerId: newCustomerId,
                             emailMarketingConsent: {
                                 marketingState: "SUBSCRIBED",
-                                marketingOptInLevel: "SINGLE_OPT_IN",
+                                marketingOptInLevel: "SINGLE_OPT_IN",   
                                 consentUpdatedAt: new Date().toISOString()
                             }
                         }

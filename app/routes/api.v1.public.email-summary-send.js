@@ -1,6 +1,9 @@
 import { sendMicrosoftEmail } from "../config/microsoft-mailer";
+import { QuoteActivity } from "../model/QuoteActivity";
 
 export const action = async ({ request }) => {
+  let quoteActivity = null;
+  
   try {
     if (request.method !== "POST") {
       return new Response(
@@ -34,6 +37,11 @@ export const action = async ({ request }) => {
       Area,
       Perimeter,
       canvasImage,
+      quoteReference,
+      quoteId,
+      customerIp,
+      userAgent,
+      quoteData
     } = data;
 
     const renderRow = (label, value, bold = false) => {
@@ -107,7 +115,7 @@ export const action = async ({ request }) => {
                   ${canvasImage ? `
                     <tr><td style="text-align:center; padding:20px;"><img src="${canvasImage}" style="max-width:100%; border:1px solid #ddd; border-radius:6px;" /></td></tr>
                   ` : ""}
-                  <tr><td style="background-color:#f6f6f6; padding:15px; text-align:center; font-size:13px; color:#666;">Thank you for choosing us for your custom shade sail.<br/>We’ll keep you updated about your order status.</td></tr>
+                  <tr><td style="background-color:#f6f6f6; padding:15px; text-align:center; font-size:13px; color:#666;">Thank you for choosing us for your custom shade sail.<br/>We'll keep you updated about your order status.</td></tr>
                 </table>
               </td>
             </tr>
@@ -116,22 +124,99 @@ export const action = async ({ request }) => {
       </html>
     `;
 
+    // Store PDF as binary data if provided
+    let pdfBuffer = null;
+    let pdfSize = 0;
+    
+    if (pdf && typeof pdf === 'string') {
+      try {
+        const pdfBase64 = pdf.includes(",") ? pdf.split(",")[1] : pdf;
+        pdfBuffer = Buffer.from(pdfBase64, 'base64');
+        pdfSize = pdfBuffer.length;
+        console.log(`PDF size: ${pdfSize} bytes`);
+      } catch (error) {
+        console.error('Error processing PDF for storage:', error);
+      }
+    }
+
     const filename = `Product Summary - Custom ${selectedFabric?.label} Shade Sail - ${selectedColor?.name} - ${corners} Corner.pdf`;
 
+    // Create activity record with email content, PDF, and quote data
+    quoteActivity = new QuoteActivity({
+      quote_reference: quoteReference || 'unknown',
+      quote_id: quoteId || quoteReference || 'unknown',
+      activity_type: 'email_summary_sent',
+      customer_email: receiver,
+      customer_ip: customerIp || request.headers.get('cf-connecting-ip') || request.headers.get('x-forwarded-for') || 'unknown',
+      user_agent: userAgent || request.headers.get('user-agent') || 'unknown',
+      email_recipients: [receiver],
+      email_subject: `Your Shade Sail Quote Summary`,
+      email_content: {
+        subject: `Your Shade Sail Quote Summary`,
+        html_content: emailHtml,
+        text_content: `Your custom shade sail configuration summary. Fabric: ${selectedFabric?.label}, Color: ${selectedColor?.name}, Price: ${totalPrice} ${currency}`
+      },
+      pdf_file: pdfBuffer ? {
+        filename: filename,
+        content: pdfBuffer,
+        size: pdfSize,
+        generated_at: new Date()
+      } : undefined,
+      quote_data: quoteData || {},
+      pdf_generated: !!pdf,
+      pdf_size: pdfSize,
+      activity_data: {
+        fabric_type: selectedFabric?.label,
+        fabric_color: selectedColor?.name,
+        edge_type: edgeType,
+        corners: corners,
+        total_price: totalPrice,
+        currency: currency,
+        area: Area,
+        perimeter: Perimeter,
+        has_canvas_image: !!canvasImage,
+        pdf_attached: !!pdfBuffer
+      }
+    });
+
+    await quoteActivity.save();
+    console.log('Email summary activity recorded in database with PDF and email content');
+
+    // Send the email with PDF attachment
     await sendMicrosoftEmail({
       to: receiver,
       subject: `Your Shade Sail Quote Summary`,
       html: emailHtml,
-      pdf,
-      filename,
+      pdf: pdf,
+      filename: filename,
     });
 
+    // Update activity record with success
+    quoteActivity.email_sent_successfully = true;
+    quoteActivity.updated_at = new Date();
+    await quoteActivity.save();
+
+    console.log('Email sent successfully with PDF attachment');
+
     return new Response(
-      JSON.stringify({ success: true, message: "Email summary sent to your email." }),
+      JSON.stringify({ 
+        success: true, 
+        message: "Email summary sent to your email.",
+        pdf_stored: !!pdfBuffer 
+      }),
       { status: 200 }
     );
   } catch (error) {
     console.error("Email send error:", error);
+    
+    // Update activity record with error
+    if (quoteActivity) {
+      quoteActivity.email_sent_successfully = false;
+      quoteActivity.email_error = error.message;
+      quoteActivity.updated_at = new Date();
+      await quoteActivity.save();
+    }
+    
     return new Response(
       JSON.stringify({ success: false, error: "Internal server error." }),
       { status: 500 }

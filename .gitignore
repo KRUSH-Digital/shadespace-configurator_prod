@@ -10,7 +10,8 @@ node_modules
 /prisma/dev.sqlite
 /prisma/dev.sqlite-journal
 database.sqlite
-
+public/shadespace
+shade_space/vite.config.ts
 .env
 .env.*
 
@@ -24,4 +25,3 @@ database.sqlite
 .shopify/*
 .shopify.lock
 
-/public/shade_space

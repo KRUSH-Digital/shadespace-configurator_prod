@@ -269,35 +269,97 @@ export function ShadeConfigurator() {
   };
 
   const selectedFabric = FABRICS.find(f => f.id === config.fabricType);
+  const selectedColor = selectedFabric?.colors.find(c => c.name === config.fabricColor);
 
   // Pricing and order handlers (lifted from ReviewContent)
-  const handleGeneratePDF = async (svgElement?: SVGElement, isEmailSummary?: boolean) => {
-    setIsGeneratingPDF(true);
-    try {
-      const pdf = await generatePDF(config, calculations, svgElement, isEmailSummary);
+// In your ShadeConfigurator component
+interface QuoteDownloadData {
+  config?: ConfiguratorState;
+  calculations?: ReturnType<typeof useShadeCalculations>;
+  selectedFabric?: (typeof FABRICS)[number];
+  selectedColor?: (typeof FABRICS)[number]['colors'][number];
+  [key: string]: unknown;
+}
 
+type PdfData = string | ArrayBuffer | Blob | null | undefined;
+
+const trackPdfDownload = async (
+  quoteReference?: string | null,
+  email?: string | null,
+  totalPrice?: number,
+  currency?: string,
+  pdfData?: PdfData,
+  quoteData?: QuoteDownloadData
+): Promise<void> => {
+  try {
+    const quoteParams: ReturnType<typeof getQuoteFromUrl> | null = getQuoteFromUrl();
+    
+    await fetch('/apps/shade_space/api/v1/public/pdf-download-track', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        quoteReference: quoteReference || quoteParams?.id || null,
+        quoteId: quoteParams?.id || null,
+        customerEmail: email,
+        totalPrice: totalPrice,
+        currency: currency,
+        pdfData: pdfData, // Send the actual PDF data
+        quoteData: quoteData || {
+          config: config,
+          calculations: calculations
+        }
+      }),
+    });
+  } catch (error) {
+    console.error('Failed to track PDF download:', error);
+  }
+};
+
+// Update handleGeneratePDF to capture PDF data
+const handleGeneratePDF = async (svgElement?: SVGElement, isEmailSummary?: boolean) => {
+  setIsGeneratingPDF(true);
+  try {
+    const pdf = await generatePDF(config, calculations, svgElement, isEmailSummary);
+
+    // Track PDF download event (only for direct downloads, not email summaries)
+    if (!isEmailSummary && pdf) {
+      const quoteParams = getQuoteFromUrl();
+      
       // Track PDF download event for admin dashboard
-      if (!isEmailSummary) {
-        const quoteParams = getQuoteFromUrl();
-        eventTrackers.pdfDownload(
-          quoteReference || (quoteParams?.id || null),
-          email || null,
-          calculations.totalPrice,
-          config.currency
-        );
-      }
-
-      return pdf
-    } catch (error) {
-      console.error('Error generating PDF:', error);
-
-      // More user-friendly error message
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
-      alert(`Failed to generate PDF: ${errorMessage}\n\nPlease try again. If the problem persists, please contact support.`);
-    } finally {
-      setIsGeneratingPDF(false);
+      eventTrackers.pdfDownload(
+        quoteReference || (quoteParams?.id || null),
+        email || null,
+        calculations.totalPrice,
+        config.currency
+      );
+      
+      // Track in MongoDB with PDF data
+      await trackPdfDownload(
+        quoteReference || (quoteParams?.id || null),
+        email || null,
+        calculations.totalPrice,
+        config.currency,
+        pdf, // Pass the PDF data
+        {
+          config: config,
+          calculations: calculations,
+          selectedFabric: selectedFabric,
+          selectedColor: selectedColor
+        }
+      );
     }
-  };
+
+    return pdf;
+  } catch (error) {
+    console.error('Error generating PDF:', error);
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+    alert(`Failed to generate PDF: ${errorMessage}\n\nPlease try again. If the problem persists, please contact support.`);
+  } finally {
+    setIsGeneratingPDF(false);
+  }
+};
 
   // Enhanced PDF generation with SVG element
   const handleGeneratePDFWithSVG = async (isEmailSummary: boolean) => {
