@@ -1,5 +1,5 @@
 import { sendMicrosoftEmail } from "../config/microsoft-mailer";
-import { QuoteActivity } from "../model/QuoteActivity";
+import QuoteActivity from "../model/QuoteActivity";
 
 export const action = async ({ request }) => {
   let quoteActivity = null;

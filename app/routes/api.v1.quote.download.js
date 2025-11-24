@@ -1,5 +1,5 @@
 
-import { QuoteActivity } from "../model/QuoteActivity";
+import QuoteActivity from "../model/QuoteActivity";
 
 export const action = async ({ request }) => {
   try {
