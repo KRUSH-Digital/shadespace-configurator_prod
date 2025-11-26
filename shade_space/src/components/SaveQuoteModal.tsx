@@ -161,6 +161,7 @@ if (saveMethod === 'email' && email) {
     } else {
       console.log('Quote confirmation email sent successfully');
 
+
       const subscription_response = await fetch('/apps/shade_space/api/v1/customers/subscribe',{method:"POST", body: JSON.stringify({email})})
 
       const subscription_data = await subscription_response.json()
