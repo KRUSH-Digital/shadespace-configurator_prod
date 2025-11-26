@@ -223,7 +223,7 @@ export default function Analytics() {
               displayValue = value.join(', ');
               items.push({ 
                 label: formattedKey, 
-                value: displayValue
+                value: String(displayValue)
               });
             }
           }
@@ -284,6 +284,19 @@ export default function Analytics() {
     });
     
     return items;
+  };
+
+  // Helper function to safely render HTML content
+  const sanitizeHtml = (html) => {
+    if (!html) return '';
+    
+    // Basic sanitization - remove scripts and styles
+    return html
+      .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
+      .replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, '')
+      .replace(/on\w+="[^"]*"/g, '') // Remove event handlers
+      .replace(/on\w+='[^']*'/g, '') // Remove event handlers
+      .substring(0, 2000) + (html.length > 2000 ? "..." : "");
   };
 
   const buildRows = (activities = []) =>
@@ -555,6 +568,103 @@ export default function Analytics() {
                     </div>
                   </BlockStack>
                 </Card>
+
+                {/* Email Content Section - Show for email_summary_sent activities */}
+                {selectedActivity.activity_type === "email_summary_sent" && selectedActivity.email_content && (
+                  <Card>
+                    <BlockStack gap="300">
+                      <Text variant="headingSm" as="h4">Email Summary Content</Text>
+                      
+                      {/* Email Subject */}
+                      <div style={{ 
+                        display: "grid", 
+                        gridTemplateColumns: "140px 1fr", 
+                        gap: "12px",
+                        alignItems: "start",
+                        paddingBottom: "12px",
+                        borderBottom: "1px solid #e3e3e3"
+                      }}>
+                        <Text variant="bodySm" tone="subdued">Subject</Text>
+                        <div style={{ wordBreak: "break-word" }}>
+                          <Text variant="bodySm">{selectedActivity.email_content.subject || "No subject"}</Text>
+                        </div>
+                      </div>
+
+                      {/* Text Content */}
+                      {selectedActivity.email_content.text_content && (
+                        <div style={{ 
+                          display: "grid", 
+                          gridTemplateColumns: "140px 1fr", 
+                          gap: "12px",
+                          alignItems: "start",
+                          paddingBottom: "12px",
+                          borderBottom: "1px solid #e3e3e3"
+                        }}>
+                          <Text variant="bodySm" tone="subdued">Text Content</Text>
+                          <div style={{ wordBreak: "break-word" }}>
+                            <Text variant="bodySm">{selectedActivity.email_content.text_content}</Text>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* HTML Content Preview */}
+                      {selectedActivity.email_content.html_content && (
+                        <div>
+                          <Text variant="bodySm" tone="subdued" style={{ marginBottom: "8px" }}>HTML Preview</Text>
+                          <div 
+                            style={{ 
+                              border: "1px solid #e3e3e3",
+                              borderRadius: "6px",
+                              padding: "16px",
+                              backgroundColor: "#f9f9f9",
+                              maxHeight: "300px",
+                              overflow: "auto",
+                              fontSize: "12px",
+                              lineHeight: "1.4"
+                            }}
+                          >
+                            {/* This will render a sanitized preview of the HTML */}
+                            <div dangerouslySetInnerHTML={{ 
+                              __html: sanitizeHtml(selectedActivity.email_content.html_content)
+                            }} />
+                          </div>
+                          <Text variant="bodySm" tone="subdued" style={{ marginTop: "4px" }}>
+                            {selectedActivity.email_content.html_content.length > 2000 
+                              ? "Content truncated - full HTML available in email" 
+                              : "Full HTML content"}
+                          </Text>
+                        </div>
+                      )}
+
+                      {/* PDF Content Info */}
+                      {selectedActivity.pdf_file && selectedActivity.pdf_file.content && (
+                        <div style={{ 
+                          display: "grid", 
+                          gridTemplateColumns: "140px 1fr", 
+                          gap: "12px",
+                          alignItems: "start",
+                          paddingTop: "12px",
+                          borderTop: "1px solid #e3e3e3"
+                        }}>
+                          <Text variant="bodySm" tone="subdued">PDF Attached</Text>
+                          <div style={{ wordBreak: "break-word" }}>
+                            <Text variant="bodySm">
+                              {selectedActivity.pdf_file.filename || "PDF File"} 
+                              ({Math.round(selectedActivity.pdf_file.size / 1024)} KB)
+                            </Text>
+                            {selectedActivity.pdf_file.content && selectedActivity.pdf_file.content.$binary && (
+                              <div style={{ marginTop: "4px" }}>
+                                <Text variant="bodySm" tone="subdued">
+                                  Base64 content available ({selectedActivity.pdf_file.content.$binary.base64.length} characters)
+                                </Text>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      )}
+                    </BlockStack>
+                  </Card>
+                )}
 
                 {/* Quote Data Section - Show for pdf_downloaded activities */}
                 {selectedActivity.activity_type === "pdf_downloaded" && selectedActivity.quote_data && (

@@ -610,6 +610,21 @@ export function ShadeConfigurator() {
         }
 
         showToast(data.message, "success");
+
+           // customer subscription
+
+      const subscription_response = await fetch('/apps/shade_space/api/v1/customers/subscribe',{method:"POST", body: JSON.stringify({email})})
+
+      const subscription_data = await subscription_response.json()
+
+      const {success, message, error} = subscription_data
+
+      if(success && message && !error){
+        showToast(message,'success')
+      }else if(!success && !message && error){
+        showToast(error,'error')
+      }
+
         setShowEmailInput(false);
         setEmail('');
       } else {
